@@ -1,10 +1,11 @@
 import fetch from "node-fetch";
+import { withTimeout } from "../../utils/utils.js";
 export type CandidateItem = {
-  itemName: string;
-  slotName: string;
-  normalizedSlot: string;
-  equipType: string;
-  useSex: number;
+  ItemName: string;
+  SlotName: string;
+  NormalizedSlot: string;
+  EquipType: string;
+  UseSex: number;
   meta: {
     style: string[];
     themes: string[];
@@ -100,7 +101,7 @@ function buildCandidateSummary(candidates: CandidateGroups) {
 
   for (const [slot, items] of Object.entries(candidates)) {
     summarized[slot] = items.map((item) => ({
-      itemName: item.itemName,
+      itemName: item.ItemName,
       tags: [
         ...item.meta.style,
         ...item.meta.themes,
@@ -124,57 +125,45 @@ export async function generateOutfitPlan(params: {
   const summarizedCandidates = buildCandidateSummary(candidates);
 
   const prompt = `
-    너는 게임 아바타 코디 플래너다.
-    반드시 아래 후보 목록 안에 있는 itemName 중에서만 선택해야 한다.
-    후보에 없는 이름을 만들어내면 안 된다.
-    설명은 최소화하고 반드시 JSON만 출력한다.
+intent와 candidates를 보고 가장 어울리는 코디를 고르라.
+meta와 score를 참고해 직관적으로 판단하되, 각 슬롯은 반드시 candidates 안의 name 하나 또는 null만 반환하라.
+배열, 객체, tags 생성 금지.
 
-    너의 작업은 스타일을 창작하는 것이 아니라,
-    주어진 candidates 안에서 슬롯별로 정확히 1개의 아이템을 선택하는 것이다.
+그리고 각 슬롯 값은 반드시 해당 candidates 배열의 ItemName 값을 한 글자도 바꾸지 말고 그대로 반환해야 한다.
+대괄호 접두사([리런], [대여], [도감], [만일])를 제거하면 안 된다.
+keywords 값을 반환하면 안 된다.
+축약, 정규화, 요약, 별칭 사용 금지.
 
-    판단 기준:
-    - intent(style, vibe)와의 일치도
-    - 슬롯 간 색상/무드/테마 조화
-    - wuxia, martial, swordsman fantasy와의 적합성
-    - score가 높을수록 우선
-    - 단, 전체 코디 균형이 더 중요하면 score가 약간 낮아도 선택 가능
-    - rental 아이템은 꼭 필요할 때만 선택
+예:
+후보 ItemName이 "[리런]금린추월관" 이면
+반환값은 반드시 "[리런]금린추월관" 이어야 한다.
+"금린추월관" 으로 반환하면 틀린다.
 
-    규칙:
-    1. 각 필드는 반드시 string 또는 null 이어야 한다.
-    2. string 값은 반드시 해당 슬롯 candidates 배열 안에 존재하는 ItemName 중 하나여야 한다.
-    3. 새 객체, 배열, tags, 설명 객체를 만들면 안 된다.
-    4. 후보가 비어 있으면 null을 넣는다.
-    5. bottom 후보가 비어 있으므로 null이어야 한다.
-    6. reason은 문자열 1개만 작성한다.
-    7. 선정 기준은 각 부위별로 score 점수가 높은 아이템 상위 10개에서 랜덤으로 지정한다. 
+JSON만 반환:
+{
+  "hair": string | null,
+  "top": string | null,
+  "bottom": string | null,
+  "outer": string | null,
+  "shoes": string | null,
+  "accessory": string | null,
+  "weapon": string | null,
+  "reason": string
+}
 
-    반환 JSON 스키마:
-    {
-    "hair": string | null,
-    "top": string | null,
-    "bottom": string | null,
-    "outer": string | null,
-    "shoes": string | null,
-    "accessory": string | null,
-    "weapon": string | null,
-    "reason": string
-    }
+input:
+${JSON.stringify({ intent, candidates: summarizedCandidates })}
+`;
 
-    사용자 의도:
-    ${JSON.stringify(intent, null, 2)}
-
-    후보 목록:
-    ${JSON.stringify(summarizedCandidates, null, 2)}
-
-    JSON만 출력하라.
-    `.trim();
-
-  const raw = await ollamaGenerate({
-    prompt,
-    model: "mistral",
-    temperature: 0.1,
-  });
+  const raw = await withTimeout(
+    ollamaGenerate({
+      prompt,
+      model: "qwen2.5:7b",
+      temperature: 0.2,
+    }),
+    60000,
+    "outfit llm timeout",
+  );
 
   const parsed = extractFirstJson(raw);
   if (!parsed || typeof parsed !== "object") {
@@ -196,7 +185,7 @@ export function validateOutfitPlan(params: {
   const allowedMap: Record<string, Set<string>> = {};
 
   for (const [slot, items] of Object.entries(candidates)) {
-    allowedMap[slot] = new Set(items.map((item) => item.itemName));
+    allowedMap[slot] = new Set(items.map((item) => item.ItemName));
   }
 
   const errors: string[] = [];
@@ -235,7 +224,7 @@ export function validateOutfitPlan(params: {
 }
 
 export function buildFallbackOutfit(candidates: CandidateGroups): OutfitPlan {
-  const pickTop = (slot: string) => candidates[slot]?.[0]?.itemName ?? null;
+  const pickTop = (slot: string) => candidates[slot]?.[0]?.ItemName ?? null;
 
   return {
     hair: pickTop("hair"),
