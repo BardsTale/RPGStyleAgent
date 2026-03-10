@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { ollamaGenerate } from "../services/llm/ollama.js";
 import { IntentSpecSchema } from "../schemas/intent.js";
+import {
+  getCandidates,
+  type IntentSpec,
+} from "../services/items/candidates.js";
+import {
+  generateOutfitPlan,
+  validateOutfitPlan,
+  buildFallbackOutfit,
+} from "../services/llm/outfit.js";
 
 export const recommendRouter = Router();
 
@@ -19,16 +28,32 @@ recommendRouter.post("/intent", async (req, res) => {
     if (!userText) return res.status(400).json({ error: "text is required" });
 
     const prompt = `
-You are a strict JSON generator.
-Convert the user request into IntentSpec JSON ONLY.
-Rules:
-- Output MUST be valid JSON. No markdown, no explanation.
-- slots must include: ["hair","top","bottom","outer","shoes","accessory"]
-- style/vibe/colors/materials are arrays of strings.
-- constraints.must_include / constraints.avoid are arrays of strings.
+      You are a strict JSON generator.
+      Convert the user request into IntentSpec JSON ONLY.
 
-User request: ${JSON.stringify(userText)}
-`;
+      Rules:
+      - Output MUST be valid JSON only.
+      - Do not output markdown.
+      - Do not output explanation.
+      - "slots" must be an array of strings.
+      - Use exactly this format for "slots":
+        ["hair", "top", "bottom", "outer", "shoes", "accessory"]
+
+      Schema:
+      {
+        "slots": ["hair", "top", "bottom", "outer", "shoes", "accessory"],
+        "style": [],
+        "vibe": [],
+        "colors": [],
+        "materials": [],
+        "constraints": {
+          "must_include": [],
+          "avoid": []
+        }
+      }
+
+      User request: ${JSON.stringify(userText)}
+    `;
 
     const raw = await ollamaGenerate({
       prompt,
@@ -42,5 +67,84 @@ User request: ${JSON.stringify(userText)}
     return res.json({ intent, raw });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message ?? "unknown error" });
+  }
+});
+
+recommendRouter.post("/candidates", async (req, res) => {
+  try {
+    const intent = req.body?.intent as IntentSpec | undefined;
+
+    if (!intent) {
+      return res.status(400).json({ error: "intent is required" });
+    }
+
+    const candidates = getCandidates(intent, 8);
+
+    return res.json({
+      intent,
+      candidates,
+    });
+  } catch (error: any) {
+    console.error("[POST /candidates] error", {
+      message: error?.message,
+      stack: error?.stack,
+      requestSummary: {
+        userInput: req.body?.userInput,
+        itemCount: req.body?.items?.length,
+      },
+    });
+
+    return res.status(500).json({
+      error: error?.message || "candidate generation failed",
+    });
+  }
+});
+
+recommendRouter.post("/outfit", async (req, res) => {
+  try {
+    const intent = req.body?.intent;
+    const candidates = req.body?.candidates;
+
+    if (!intent) {
+      return res.status(400).json({ error: "intent is required" });
+    }
+
+    if (!candidates) {
+      return res.status(400).json({ error: "candidates is required" });
+    }
+
+    const { outfit, raw } = await generateOutfitPlan({
+      intent,
+      candidates,
+    });
+
+    const validation = validateOutfitPlan({
+      outfit,
+      candidates,
+    });
+
+    if (!validation.valid) {
+      const fallback = buildFallbackOutfit(candidates);
+
+      return res.json({
+        intent,
+        outfit: fallback,
+        raw,
+        validation,
+        fallbackApplied: true,
+      });
+    }
+
+    return res.json({
+      intent,
+      outfit,
+      raw,
+      validation,
+      fallbackApplied: false,
+    });
+  } catch (e: any) {
+    return res.status(500).json({
+      error: e?.message ?? "unknown error",
+    });
   }
 });
