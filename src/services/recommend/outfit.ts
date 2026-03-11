@@ -1,5 +1,7 @@
 import fetch from "node-fetch";
 import { withTimeout } from "../../utils/utils.js";
+import { type IntentSpec } from "../../types/commonTypes.js";
+
 export type CandidateItem = {
   ItemName: string;
   SlotName: string;
@@ -16,19 +18,6 @@ export type CandidateItem = {
     confidence: number;
   };
   score: number;
-};
-
-export type IntentSpec = {
-  slots: string[];
-  style: string[];
-  vibe: string[];
-  colors: string[];
-  materials: string[];
-  constraints: {
-    must_include: string[];
-    avoid: string[];
-    season?: string;
-  };
 };
 
 export type CandidateGroups = Record<string, CandidateItem[]>;

@@ -1,18 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-
-export type IntentSpec = {
-  slots: string[];
-  style: string[];
-  vibe: string[];
-  colors: string[];
-  materials: string[];
-  constraints: {
-    must_include: string[];
-    avoid: string[];
-    season?: string;
-  };
-};
+import { type IntentSpec } from "../../types/commonTypes.js";
 
 type Meta = {
   style: string[];
@@ -254,7 +242,7 @@ function scoreItem(intent: IntentSpec, meta: Meta): number {
   return score;
 }
 
-export function getCandidates(intent: IntentSpec, perSlot = 8) {
+export function generateCandidates(intent: IntentSpec, perSlot = 8) {
   const cache = loadCache();
   const intentGender = detectGender(intent);
   const minScore = intent.style.length > 0 ? 2 : 0; // 최소 점수 커트라인
